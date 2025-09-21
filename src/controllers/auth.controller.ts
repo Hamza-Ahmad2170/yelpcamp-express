@@ -91,8 +91,31 @@ export const signin = async (req: Request, res: Response) => {
   );
 };
 
-export const signout = async (_req: Request, res: Response) => {
+export const signout = async (req: Request, res: Response) => {
+  const token = req.cookies['refreshToken'];
+  if (!token) {
+    return res.status(200).json(new ApiResponse(200, 'Logged out'));
+  }
   res.clearCookie('refreshToken', cookieOptions);
+  const decodedUser = verifyToken<RefreshTokenPayload>(token, env.REFRESH_TOKEN_SECRET);
+
+  if (!decodedUser) {
+    return res.status(200).json(new ApiResponse(200, 'Logged out'));
+  }
+
+  const foundUser = await User.findOne({
+    'refreshTokens.jti': decodedUser.jti,
+    'refreshTokens.userAgent': userAgent(req),
+  });
+
+  if (!foundUser) {
+    return res.status(200).json(new ApiResponse(200, 'Logged out'));
+  }
+
+  foundUser.refreshTokens.pull({ jti: decodedUser.jti });
+
+  await foundUser.save();
+  return res.status(200).json(new ApiResponse(200, 'Logged out'));
 };
 
 export const refreshToken = async (req: Request, res: Response) => {
