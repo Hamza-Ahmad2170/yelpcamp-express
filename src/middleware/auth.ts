@@ -8,8 +8,6 @@ const auth = (req: Request, _res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return next(new ApiError(401, 'Unauthorized request'));
 
-  console.log({ authHeader });
-
   const [, token] = authHeader.split(' ');
   if (!token) return next(new ApiError(401, 'invalid token'));
 

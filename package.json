@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "NODE_ENV=development tsx watch ./src/index.ts",
-    "build": "NODE_ENV=production tsc && tsc-alias",
+    "dev": " tsx watch ./src/index.ts",
+    "build": "tsc && tsc-alias",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write .",

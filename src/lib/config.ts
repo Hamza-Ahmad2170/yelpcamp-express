@@ -1,5 +1,5 @@
 import argon2, { type Options } from 'argon2';
-import { isProduction } from './env.js';
+import { isDevelopment } from './env.js';
 import { type CookieOptions } from 'express';
 
 const argonOptions: Options = {
@@ -14,7 +14,7 @@ const cookieOptions: CookieOptions = {
   httpOnly: true,
   sameSite: 'lax',
   path: '/',
-  secure: isProduction,
+  secure: !isDevelopment,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 

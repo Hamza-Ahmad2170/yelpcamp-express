@@ -31,26 +31,13 @@ export const signup = async (req: Request, res: Response) => {
     userAgent: userAgent(req),
   });
 
-  const createdUser = await newUser.save();
+  await newUser.save();
 
   res.cookie('refreshToken', refreshToken, cookieOptions);
-  res.status(200).json(
-    new ApiResponse(
-      200,
-      {
-        accessToken,
-        user: {
-          _id: createdUser._id,
-          email: createdUser.email,
-          fullName: createdUser.fullName,
-        },
-      },
-      'User created successfully',
-    ),
-  );
+  res.status(200).json(new ApiResponse(200, accessToken, 'User created successfully'));
 };
 
-export const signin = async (req: Request, res: Response) => {
+export const login = async (req: Request, res: Response) => {
   const { email, password } = validate(signInSchema, req.body);
 
   const user = await User.authenticateUser(email, password);
@@ -63,32 +50,15 @@ export const signin = async (req: Request, res: Response) => {
   const accessToken = user.generateAccessToken();
   const { jti, refreshToken } = user.generateRefreshToken();
 
-  console.log({
-    userAgent: userAgent(req),
-  });
-
   user.refreshTokens.push({
     jti,
     userAgent: userAgent(req),
   });
 
-  const createdUser = await user.save();
+  await user.save();
 
   res.cookie('refreshToken', refreshToken, cookieOptions);
-  res.status(200).json(
-    new ApiResponse(
-      200,
-      {
-        accessToken,
-        user: {
-          _id: createdUser._id,
-          email: createdUser.email,
-          fullName: createdUser.fullName,
-        },
-      },
-      'User logged in successfully',
-    ),
-  );
+  res.status(200).json(new ApiResponse(200, accessToken, 'User logged in successfully'));
 };
 
 export const signout = async (req: Request, res: Response) => {
