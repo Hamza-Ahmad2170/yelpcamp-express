@@ -9,6 +9,7 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "moduleDetection": "force",
+    "noPropertyAccessFromIndexSignature": false,
     "paths": {
       "@/*": ["src/*"]
     },
