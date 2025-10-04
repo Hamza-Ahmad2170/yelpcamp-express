@@ -1,9 +1,9 @@
 import z, { type ZodType } from 'zod';
 import { type Request } from 'express';
 import { UAParser } from 'ua-parser-js';
-import ApiError from './ApiError.js';
-import jwt from 'jsonwebtoken';
-import type { AccessTokenPayload, RefreshTokenPayload } from '../types/payload.js';
+import ApiError from '@/lib/ApiError.js';
+import jwt, { type VerifyErrors } from 'jsonwebtoken';
+import type { AccessTokenPayload, RefreshTokenPayload } from '@/types/payload.js';
 
 const validate = <T>(schema: ZodType<T>, data: unknown) => {
   const result = schema.safeParse(data);
@@ -19,12 +19,17 @@ const validate = <T>(schema: ZodType<T>, data: unknown) => {
 const verifyToken = <T extends AccessTokenPayload | RefreshTokenPayload>(
   token: string,
   secret: string,
-): T | null => {
+):
+  | { data: T; error: null }
+  | {
+      data: null;
+      error: VerifyErrors;
+    } => {
   try {
     const payload = jwt.verify(token, secret) as T;
-    return payload;
+    return { data: payload, error: null };
   } catch (error) {
-    return null;
+    return { data: null, error: error as VerifyErrors };
   }
 };
 

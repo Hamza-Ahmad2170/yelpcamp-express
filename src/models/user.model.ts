@@ -5,21 +5,14 @@ import { Schema, model, type Model, type HydratedDocument, type InferSchemaType 
 import argon2 from 'argon2';
 import { argonOptions } from '@/lib/config.js';
 
-// Type definitions
-interface RefreshToken {
-  jti: string;
-  expiresAt: Date;
-  createdAt: Date;
-}
-
 interface UserMethods {
   comparePassword(password: string): Promise<boolean>;
   generateAccessToken(): string;
   generateRefreshToken(): {
     refreshToken: string;
     jti: string;
+    expiresAt: Date;
   };
-  removeExpiredRefreshTokens(): Promise<void>;
 }
 
 interface UserVirtuals {
@@ -29,23 +22,6 @@ interface UserVirtuals {
 interface UserStatics {
   authenticateUser(email: string, password: string): Promise<UserDoc | false>;
 }
-
-// Schema definition
-const refreshTokenSchema = new Schema({
-  jti: {
-    type: String,
-    required: true,
-  },
-  expiresAt: {
-    type: Date,
-    required: true,
-    default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
 
 const userSchema = new Schema(
   {
@@ -80,10 +56,6 @@ const userSchema = new Schema(
       minlength: [1, 'Last name is required'],
       maxlength: [255, 'Last name must be less than 255 characters'],
     },
-    refreshTokens: {
-      type: [refreshTokenSchema],
-      default: [],
-    },
   },
   {
     timestamps: true,
@@ -98,28 +70,23 @@ userSchema.virtual('fullName').get(function (this: UserDoc) {
 });
 
 // Instance methods
-userSchema.methods.comparePassword = async function (password: string): Promise<boolean> {
+userSchema.methods.comparePassword = async function (password: string) {
   return argon2.verify(this.password, password, argonOptions);
 };
 
-userSchema.methods.generateAccessToken = function (): string {
+userSchema.methods.generateAccessToken = function () {
   return jwt.sign({ sub: this._id }, env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
 };
 
-userSchema.methods.generateRefreshToken = function (): { refreshToken: string; jti: string } {
+userSchema.methods.generateRefreshToken = function () {
   const jti = randomUUID();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   const refreshToken = jwt.sign({ sub: this._id, jti }, env.REFRESH_TOKEN_SECRET, {
     expiresIn: '7d',
   });
 
-  return { refreshToken, jti };
-};
-
-userSchema.methods.removeExpiredRefreshTokens = async function (): Promise<void> {
-  const now = new Date();
-  this.refreshTokens = this.refreshTokens.filter((token: RefreshToken) => token.expiresAt > now);
-  await this.save();
+  return { refreshToken, jti, expiresAt };
 };
 
 // Static methods

@@ -2,7 +2,8 @@ import ApiError from '@/lib/ApiError.js';
 import ApiResponse from '@/lib/ApiResponse.js';
 import { cookieOptions } from '@/lib/config.js';
 import { env } from '@/lib/env.js';
-import { userAgent, validate, verifyToken } from '@/lib/utils.js';
+import { validate, verifyToken } from '@/lib/utils.js';
+import { RefreshToken } from '@/models/refreshToken.model.js';
 import { User } from '@/models/user.model.js';
 import { signInSchema, signUpSchema } from '@/schema/auth.schema.js';
 import type { RefreshTokenPayload } from '@/types/payload.js';
@@ -10,13 +11,11 @@ import { type Request, type Response } from 'express';
 
 export const signup = async (req: Request, res: Response) => {
   const { email, password, firstName, lastName } = validate(signUpSchema, req.body);
-  const user = await User.findOne({ email });
+  const existingUser = await User.findOne({ email });
 
-  if (user) {
-    throw new ApiError(400, 'User already exists');
-  }
+  if (existingUser) throw new ApiError(400, 'User already exists');
 
-  const newUser = new User({
+  const newUser = await User.create({
     email,
     password,
     firstName,
@@ -24,13 +23,13 @@ export const signup = async (req: Request, res: Response) => {
   });
 
   const accessToken = newUser.generateAccessToken();
-  const { jti, refreshToken } = newUser.generateRefreshToken();
+  const { jti, refreshToken, expiresAt } = newUser.generateRefreshToken();
 
-  newUser.refreshTokens.push({
-    jti: jti,
+  await RefreshToken.create({
+    userId: newUser._id,
+    jti,
+    expiresAt,
   });
-
-  await newUser.save();
 
   res.cookie('refreshToken', refreshToken, cookieOptions);
   res.status(200).json(
@@ -49,19 +48,16 @@ export const login = async (req: Request, res: Response) => {
 
   const user = await User.authenticateUser(email, password);
 
-  if (!user) {
-    throw new ApiError(401, 'Invalid email or password');
-  }
+  if (!user) throw new ApiError(401, 'Invalid email or password');
 
-  await user.removeExpiredRefreshTokens();
   const accessToken = user.generateAccessToken();
-  const { jti, refreshToken } = user.generateRefreshToken();
+  const { jti, refreshToken, expiresAt } = user.generateRefreshToken();
 
-  user.refreshTokens.push({
+  await RefreshToken.create({
+    userId: user._id,
     jti,
+    expiresAt,
   });
-
-  await user.save();
 
   res.cookie('refreshToken', refreshToken, cookieOptions);
   res.status(200).json(
@@ -77,154 +73,23 @@ export const login = async (req: Request, res: Response) => {
 
 export const signout = async (req: Request, res: Response) => {
   const token = req.cookies['refreshToken'];
-  if (!token) {
-    return res.status(200).json(new ApiResponse(200, 'Logged out'));
-  }
+  if (!token) return res.status(200).json(new ApiResponse(200, 'Logged out'));
+
   res.clearCookie('refreshToken', cookieOptions);
-  const decodedUser = verifyToken<RefreshTokenPayload>(token, env.REFRESH_TOKEN_SECRET);
 
-  if (!decodedUser) {
-    return res.status(200).json(new ApiResponse(200, 'Logged out'));
-  }
+  const decoded = verifyToken<RefreshTokenPayload>(token, env.REFRESH_TOKEN_SECRET);
+  if (!decoded.data) return res.status(200).json(new ApiResponse(200, 'Logged out'));
 
-  const foundUser = await User.findOne({
-    'refreshTokens.jti': decodedUser.jti,
-    'refreshTokens.userAgent': userAgent(req),
+  await RefreshToken.deleteOne({
+    jti: decoded.data.jti,
+    userId: decoded.data.sub,
   });
 
-  if (!foundUser) {
-    return res.status(200).json(new ApiResponse(200, 'Logged out'));
-  }
-
-  foundUser.refreshTokens.pull({ jti: decodedUser.jti });
-
-  await foundUser.save();
   return res.status(200).json(new ApiResponse(200, 'Logged out'));
 };
 
-// export const refreshToken = async (req: Request, res: Response) => {
-//   const refreshToken = req.cookies['refreshToken'];
-
-//   if (!refreshToken) {
-//     throw new ApiError(401, 'Refresh token is required');
-//   }
-
-//   const decodedUser = verifyToken<RefreshTokenPayload>(refreshToken, env.REFRESH_TOKEN_SECRET);
-
-//   if (!decodedUser) {
-//     res.clearCookie('refreshToken', cookieOptions);
-//     throw new ApiError(401, 'Invalid refresh token');
-//   }
-
-//   const userDevice = userAgent(req);
-
-//   const foundUser = await User.findOne({
-//     'refreshTokens.jti': decodedUser.jti,
-//     'refreshTokens.userAgent': userDevice,
-//   });
-
-//   if (!foundUser) {
-//     const hackedUser = await User.findOne({
-//       'refreshTokens.jti': decodedUser.jti,
-//     });
-
-//     if (hackedUser) {
-//       hackedUser.set('refreshTokens', []);
-//       await hackedUser.save();
-//     }
-
-//     console.log('i was here clearing cookie');
-
-//     res.clearCookie('refreshToken', cookieOptions);
-//     throw new ApiError(401, 'Invalid refresh token');
-//   }
-
-//   const accessToken = foundUser.generateAccessToken();
-//   const { jti: newJti, refreshToken: newRefreshToken } = foundUser.generateRefreshToken();
-
-//   await User.findOneAndUpdate(
-//     { _id: foundUser._id },
-//     {
-//       $set: {
-//         refreshTokens: [
-//           // keep only tokens that are NOT expired and not the old one
-//           ...foundUser.refreshTokens.filter(
-//             (t) => t.jti !== decodedUser.jti && (!t.expiresAt || t.expiresAt > new Date()),
-//           ),
-//           {
-//             jti: newJti,
-//             userAgent: userDevice,
-//           },
-//         ],
-//       },
-//     },
-//     { new: true },
-//   );
-
-//   res.cookie('refreshToken', newRefreshToken, cookieOptions);
-//   res
-//     .status(200)
-//     .json(new ApiResponse(200, { accessToken }, 'Refresh token refreshed successfully'));
-// };
-
-export const refreshToken = async (req: Request, res: Response) => {
-  const refreshToken = req.cookies['refreshToken'];
-
-  if (!refreshToken) {
-    throw new ApiError(401, 'Refresh token is required');
-  }
-
-  const decodedUser = verifyToken<RefreshTokenPayload>(refreshToken, env.REFRESH_TOKEN_SECRET);
-
-  if (!decodedUser) {
-    res.clearCookie('refreshToken', cookieOptions);
-    throw new ApiError(401, 'Invalid refresh token');
-  }
-
-  const foundUser = await User.findOne({
-    'refreshTokens.jti': decodedUser.jti,
-  });
-
-  if (!foundUser) {
-    res.clearCookie('refreshToken', cookieOptions);
-    await User.updateOne({ _id: decodedUser.sub }, { $set: { refreshTokens: [] } });
-
-    throw new ApiError(401, 'Detected refresh token reuse');
-  }
-
-  await foundUser.removeExpiredRefreshTokens();
-
-  const accessToken = foundUser.generateAccessToken();
-  const { jti: newJti, refreshToken: newRefreshToken } = foundUser.generateRefreshToken();
-
-  // Remove old token, then add new token in separate operations
-  await User.updateOne(
-    { _id: foundUser._id },
-    {
-      $pull: { refreshTokens: { jti: decodedUser.jti } },
-    },
-  );
-
-  await User.updateOne(
-    { _id: foundUser._id },
-    {
-      $push: {
-        refreshTokens: {
-          jti: newJti,
-        },
-      },
-    },
-  );
-
-  res.clearCookie('refreshToken', cookieOptions);
-  res.cookie('refreshToken', newRefreshToken, cookieOptions);
-  res
-    .status(200)
-    .json(new ApiResponse(200, { accessToken }, 'Refresh token refreshed successfully'));
-};
-
 export const getSession = async (req: Request, res: Response) => {
-  const user = await User.findById(req.userId);
+  const user = await User.findById(req.sub);
 
   if (!user) {
     throw new ApiError(401, 'User not found');
@@ -243,4 +108,56 @@ export const getSession = async (req: Request, res: Response) => {
       'User found successfully',
     ),
   );
+};
+
+export const refreshToken = async (req: Request, res: Response) => {
+  const refreshToken = req.cookies['refreshToken'];
+
+  if (!refreshToken) {
+    throw new ApiError(401, 'Refresh token is required');
+  }
+
+  const decodedToken = verifyToken<RefreshTokenPayload>(refreshToken, env.REFRESH_TOKEN_SECRET);
+  if (!decodedToken.data) {
+    res.clearCookie('refreshToken', cookieOptions);
+    throw new ApiError(401, 'Invalid refresh token');
+  }
+
+  const { sub: userId, jti } = decodedToken.data;
+  const existingToken = await RefreshToken.findOne({ userId, jti });
+  console.log({ existingToken });
+
+  if (!existingToken) {
+    const userExists = await User.findById(userId);
+    if (userExists) {
+      // token reuse detected → clear all user's refresh tokens for safety
+      await RefreshToken.deleteMany({ userId });
+
+      // TODO: Send security alert email
+    }
+    res.clearCookie('refreshToken', cookieOptions);
+    throw new ApiError(401, 'Invalid refresh token - please login again');
+  }
+
+  await RefreshToken.deleteOne({ userId, jti });
+
+  const user = await User.findById(userId);
+  if (!user) {
+    res.clearCookie('refreshToken', cookieOptions);
+    throw new ApiError(401, 'User not found');
+  }
+
+  const accessToken = user.generateAccessToken();
+  const { jti: newJti, refreshToken: newRefreshToken, expiresAt } = user.generateRefreshToken();
+
+  await RefreshToken.create({
+    userId: user._id,
+    jti: newJti,
+    expiresAt,
+  });
+
+  res.cookie('refreshToken', newRefreshToken, cookieOptions);
+  res
+    .status(200)
+    .json(new ApiResponse(200, { accessToken }, 'Refresh token refreshed successfully'));
 };

@@ -1,4 +1,5 @@
 import * as campgroundController from '@/controllers/campground.controller.js';
+import auth from '@/middleware/auth.js';
 import express from 'express';
 
 const router: express.Router = express.Router();
@@ -6,7 +7,7 @@ const router: express.Router = express.Router();
 router
   .route('/')
   .get(campgroundController.getAllCampgrounds)
-  .post(campgroundController.createCampground);
+  .post(auth, campgroundController.createCampground);
 
 router
   .route('/:id')

@@ -13,9 +13,9 @@ const auth = (req: Request, _res: Response, next: NextFunction) => {
 
   const decodedUser = verifyToken<AccessTokenPayload>(token, env.ACCESS_TOKEN_SECRET);
 
-  if (!decodedUser) return next(new ApiError(401, 'invalid token'));
+  if (!decodedUser.data) return next(new ApiError(401, 'invalid token'));
 
-  req.userId = decodedUser.sub;
+  req.sub = decodedUser.data.sub;
 
   return next();
 };

@@ -4,15 +4,15 @@ import Campground from '@/models/campground.model.js';
 import type { Request, Response } from 'express';
 
 const getAllCampgrounds = async (_req: Request, res: Response) => {
-  const campgrounds = await Campground.find();
+  const campgrounds = await Campground.find({});
 
   res.status(200).json(new ApiResponse(200, campgrounds));
 };
 
-const createCampground = async (_req: Request, _res: Response) => {};
+const createCampground = async (req: Request, res: Response) => {};
 
 const getCampgroundById = async (req: Request, res: Response) => {
-  const campground = await Campground.findById(req.params['id']);
+  const campground = await Campground.findById(req.params.id);
 
   if (!campground) {
     throw new ApiError(404, 'Campground not found');
